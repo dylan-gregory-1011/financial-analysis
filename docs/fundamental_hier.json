@@ -1,0 +1,7 @@
+{"Assets & Liabilities" : ["assets","cash","liabilities","debtlongterm","debtshortterm"],
+  "Costs":["cogs","cogs_ttm","costofrevenue","costofrevenue_ttm","depreciationamortization","depreciationamortization_ttm"],
+  "Revenue": ["revenue","grossprofit","netincome","operatingincome","ebitda","nopat"],
+  "Revenue TTM": ["revenue_ttm","grossprofit_ttm","netincome_ttm","operatingincome_ttm","ebitda_ttm"],
+  "Ratios":["eps","roce","roe","roa","bps","debttoequity","operatingmargin"],
+  "Growth Rate":["netincome_grwth_rt","grossprofit_grwth_rt","operatingmargin_grwth_rt","ebitda_grwth_rt"],
+  "Miscellaneous":["shares","taxrate","buybacks","inventoryturnover"]}

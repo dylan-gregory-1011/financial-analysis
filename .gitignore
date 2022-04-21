@@ -1,0 +1,8 @@
+# Dont track the content of these modules
+archive/
+/data/
+keys/
+reports/
+references/
+logs/
+dashboards/
