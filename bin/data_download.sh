@@ -11,6 +11,8 @@ echo "Downloading External Data"
 
 echo "Downloading the SEC Data from Edgar"
 python3 $dwnld_file sec
+
+echo "Downloading Stock Data from TD Ameritrade"
 #python3 $dwnld_file stocks
 
 echo "Finished weekly extract of financial data"

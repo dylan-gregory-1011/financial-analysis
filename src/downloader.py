@@ -12,9 +12,7 @@ is run on my raspberry pi to aggregate all of the data
 
 #Imports
 from pathlib import Path
-import pandas as pd
 import sys
-import numpy as np
 from data import SECFilingDownload, TDClient, SECFilingFormatter, UpdateMaster, FredClient, GuardianClient, NYTClient, WikipediaScraper
 from datetime import datetime, date
 from os.path import exists
@@ -87,7 +85,6 @@ def downloadExternalData():
     fred.updateExternalSeries()
     logger.info('Finished Download Of External Datasets')
 
-
 def updateListedCompanies():
     """ 
     Function that updates the company master table in the database to allow for adequate analysis
@@ -104,9 +101,8 @@ def updateListedCompanies():
 
 def downloadStockHistory():
     """ 
-    Function that updates the company master table in the database to allow for adequate analysis
+    Function that downloads the stock data and updates it in the database
     """
-    #Function that downloads the stock data and updates it in the database
     logging.basicConfig(level=logging.INFO, 
                         format = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
                         datefmt= '%m-%d %H:%M', 
@@ -114,13 +110,12 @@ def downloadStockHistory():
                         filemode = 'w')
 
     logger.info('Initializing Stock Client')
-    downloader = TDClient(PROJ.joinpath('keys','tdconfig.json'), proc_path = EQUITIES_DIR)
+    downloader = TDClient(PROJ.joinpath('keys','tdconfig.json'), proc_path = EQUITIES_DIR, mstr_path = MASTER_DIR)
     logger.info("Downloading Stock Data")
     downloader.updateStockHistory()
-    #SQL_EQUITIES.executeSQL("INSERT OR IGNORE INTO dly_stock_hist VALUES (%s)", df_updt)
     logger.info("Finished Downloading Stock Data")
 
-def downloadAndFormatSECData(full_load = False):
+def downloadAndFormatSECData(full_load = False, full_aggregate = False):
     """ 
     Function that downloads the SEC data and then passes the files that are to be formatted
     ...
@@ -153,20 +148,27 @@ def downloadAndFormatSECData(full_load = False):
 
     if full_load:
         # If we want a full load, iterate over all of the zipped files
-        for year in range(2010, 2022):
+        for year in range(2010, 2023):
             for qtr in range(1, 5):
-                zip_name = "%sQTR%s.zip" % (year, qtr)
-                logging.info(" Download succesful, formatting files from %i, QTR %i" %(year, qtr))
-                sec_formatter.formatFilings(dir = zip_name, files_to_format =  None)
-                logging.info("Formatting Succesful for %i QTR %i" % (year, qtr))
+                if year == 2022 and qtr > 2:
+                    break
+                logging.info("Formatting files from %i, QTR %i" %(year, qtr))
+                sec_formatter.formatFilings(yr_qtr = (year, qtr), files_to_format =  None)
+                logging.info("Formatting Succesful for %i QTR %i.  Moving to Aggregate files" % (year, qtr))
     else:
         # Iterate through the zip files that we have found
         for (zip_name, year, qtr) in zip_files:
-            logging.info(" Downloading SEC Filings for %i, QTR %i" %(year, qtr))
+            logging.info("Downloading SEC Filings for %i, QTR %i" %(year, qtr))
             new_files = sec_downloader.updateFilings(year = year, qtr = "QTR%s" % qtr)
-            logging.info(" Download succesful, formatting files from %i, QTR %i" %(year, qtr))
-            sec_formatter.formatFilings(dir = zip_name, files_to_format =  new_files)
+            logging.info("Download succesful, formatting files from %i, QTR %i" %(year, qtr))
+            sec_formatter.formatFilings(yr_qtr = (year, qtr), files_to_format =  new_files)
+            sec_formatter.buildAggregatedDataset(files_to_format = new_files)
             logging.info("Formatting Succesful for %i QTR %i" % (year, qtr))
+    
+    if full_aggregate:
+        # aggregate the data
+        sec_formatter.buildAggregatedDataset(files_to_format = None)
+        logging.info("Aggregating the dataset")
 
 def downloadQuarterlyFundamentalData():
     '''
@@ -201,7 +203,7 @@ def main(download_to_run= None):
     elif download_to_run == 'stocks':
         downloadStockHistory()
     elif download_to_run == 'sec':
-        downloadAndFormatSECData(full_load = False)
+        downloadAndFormatSECData(full_load = True)
     elif download_to_run == 'update_master':
         updateListedCompanies()
 

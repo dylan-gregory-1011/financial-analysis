@@ -18,6 +18,7 @@ from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 import logging
 from .api_call import api_call
+import math
 
 __author__ = "Dylan Smith"
 __copyright__ = "Copyright (C) 2019 Dylan Smith"
@@ -35,7 +36,7 @@ AUTH = BASE + 'oauth2/token'
 HISTORY = BASE + 'marketdata/%s/pricehistory?periodType=month&frequencyType=daily&startDate=%s&endDate=%s'
 
 class TDClient(object):
-    def __init__(self, key, proc_path, sql_equities, sql_mstr):
+    def __init__(self, key, proc_path, mstr_path):
         """ 
         An object that allows access to the TD Ameritrade website and download new stock information
         ... 
@@ -43,29 +44,58 @@ class TDClient(object):
         ----------
         key: The path to the api token file with the current refresh token
         proc_path: The directory with the processeed data
-        sql_equities: The current connection to the equities database
         """
         self.logger = logging.getLogger('stocks.TDClient')
         self.get_new_key = False
         self.api_token = key
-        self.sql_equities = sql_equities
-        self.df_mstr = pd.read_csv(self.proc_path.joinpath('stocks_master.csv.gz'),
-                                   compression='gzip')
+        self.proc_path = proc_path
+        self.mstr_path = mstr_path
+        self.df_mstr = pd.read_csv(mstr_path.joinpath('company_info1.tsv.gz'),
+                                   compression='gzip',
+                                    sep = '\t',)
+        self.df_mstr['sector'] = self.df_mstr['sector'].fillna('no-sector')
         self.refreshAPIKey()
 
     def updateStockHistory(self):
         """ 
         This function downloads stock data into the analysis database. If the symbol returns an error, update the table with Bad Symbol
         """
-        stocks_DF = self.df_mstr[['ticker','last_update']]
+        stocks_DF = self.df_mstr[['ticker','last_update','sector']]
+        
+        # Iterate through the stocks 
         for index, row in stocks_DF.iterrows():
+            # Replace the start date
+            if row['ticker'] in ['A','AA','AAC','AACG','AACI','AACIU','AACIW','AADI','AAIC']:
+                continue
+            print(row['ticker'])
             startDate = row['last_update']
+            sector = row['sector'].lower().replace(' ','-')
+
+            # Get the start date
             if startDate == (datetime.today() - timedelta(days = 3)).strftime('%Y-%m-%d') or \
                 startDate == (datetime.today() - timedelta(days = 1)).strftime('%Y-%m-%d') or \
                 startDate == datetime.today().strftime('%Y-%m-%d'):
                 self.logger.info("%s: Stock History Passed" % row['ticker'])
                 continue
-            elif startDate is None:
+            elif math.isnan(startDate):
+                # Read the file
+                df = pd.read_csv(self.proc_path.joinpath('%s.tsv.gz' % sector),
+                            compression = 'gzip',
+                            sep = '\t',
+                            index_col = False,
+                            encoding = 'utf-8',
+                            lineterminator = '\n')
+                
+                # Get list of dates
+                dateFound = df[df['ticker'] == row['ticker']]['date'].tolist()
+
+                # if there are no dates, set a long term initial date
+                if len(dateFound) == 0:
+                    startDate = '2009-06-30'
+                else:
+                    startDate = max(dateFound)
+            
+            if startDate is None:
                 startDate = '2009-06-30'
 
             time.sleep(0.1)
@@ -73,27 +103,46 @@ class TDClient(object):
             end_dt = int(datetime.today().timestamp() * 1000)
             url = HISTORY % (row['ticker'], strt_dt, end_dt)
 
+            # Get the stock data from the process
             try:
                 x = self.api_call(url)
                 df = pd.DataFrame(x['candles'])
                 df['datetime'] = pd.to_datetime(df['datetime'], unit= 'ms')
                 df['datetime'] = df['datetime'].dt.date
             except:
-                #self.sql_mstr.executeSQL("UPDATE stocks_master SET ipoyear = 'BAD_SYMBOL' WHERE ticker = '%s'" % row['ticker'])
-                self.df_mstr.iloc[self.df_mstr['ticker'] == row['ticker'],'ipoyear'] = row['ticker']
+                self.df_mstr.loc[self.df_mstr['ticker'] == row['ticker'],'ipoyear'] = row['ticker']
                 self.logger.info("%s: Stock History Failed" % row['ticker'])
                 continue
-
+            
+            # Reformat the dataframe
             df.insert(0, 'ticker', row['ticker'])
             df.rename(columns = {'datetime': 'date'}, inplace = True)
             try:
                 df = df[['ticker','date', 'open','high','low','close','volume']]
-                self.sql_delta.executeSQL("INSERT OR IGNORE INTO dly_stock_hist VALUES (%s)", df)
-                #self.sql_mstr.executeSQL("UPDATE stocks_master SET last_update = '%s' WHERE ticker = '%s'"% (max(df['date']), row['ticker']))
-                self.df_mstr.iloc[self.df_mstr['ticker'] == row['ticker'],'last_update'] = max(df['date'])
+                # Update the master-data object
+                self.df_mstr.loc[self.df_mstr['ticker'] == row['ticker'], 'last_update'] = max(df['date'])
+                
+                df.to_csv(self.proc_path.joinpath('%s.tsv.gz' % sector),
+                        compression = 'gzip',
+                        mode = 'a',
+                        sep='\t',
+                        index = False,
+                        encoding='utf-8',
+                        line_terminator = '\n')
+                self.logger.info("%s: Stock History Downloaded" % row['ticker'])
             except:
+                self.logger.info("%s: Stock History Failed for Ticker" % row['ticker'])
                 pass
-            self.logger.info("%s: Stock History Downloaded" % row['ticker'])
+
+        # Write the master file to an output
+        self.df_mstr.to_csv(self.mstr_path.joinpath('company_info1.tsv.gz'),
+                        compression = 'gzip',
+                        mode = 'w',
+                        sep='\t',
+                        index = False,
+                        encoding='utf-8',
+                        line_terminator = '\n')
+
 
     def refreshAPIKey(self):
         """ 
@@ -122,7 +171,7 @@ class TDClient(object):
         """
         return {'Authorization': 'Bearer ' + self._token, 'User-agent': 'Dylan' ,'Accept': 'application/json',}
 
-    """def api_call(self, url):
+    def api_call(self, url):
         ''' 
         The function that calls the api for both the history and fundamental information
             ::param url: The url to be called for the api
@@ -143,4 +192,29 @@ class TDClient(object):
             time.sleep(1)
             print(api_call.status_code)
             api_call = requests.get(url, headers= self._headers())
-        return api_call.json()"""
+        
+        return api_call.json()
+
+    def dropDuplicatesFromEquities(self):
+        '''
+        
+        '''
+        # Get the name of all sectors in the dataset
+        out_files = [x for x in self.proc_data.glob('**/*') if x.is_file()]
+
+        for file in out_files:
+            # Read the file
+            df = pd.read_csv(file,
+                            compression = 'gzip',
+                            sep = '\t',
+                            index_col = False,
+                            encoding = 'utf-8',
+                            lineterminator = '\n')
+
+            # Drop duplicates from the dataset
+            print(len(df['ticker']))
+            df.drop_duplicates(subset=['date','ticker'], inplace = True )
+            print(len(df['ticker']))
+            break
+
+            

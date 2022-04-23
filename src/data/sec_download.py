@@ -10,7 +10,6 @@ that allows for the specific attribute to be analyzed in isolation from the othe
 """
 
 #Imports
-import requests
 import os
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -52,6 +51,7 @@ class SECFilingDownload(object):
         self.logger = logging.getLogger('sec.SECFilingDownload')
         self.raw_dir = sec_data.joinpath('raw-filings')
         self.ind_dir = sec_data.joinpath('index')
+        self.risk_dir = sec_data.joinpath('risk-factors')
         self.logger.info(" Object Instantiated Succesfully")
 
     def updateFilings(self, year, qtr):
@@ -66,7 +66,7 @@ class SECFilingDownload(object):
         url, ind_file = ("https://www.sec.gov/Archives/edgar/full-index/%s/%s/master.zip") % (year, qtr), "%s-%s.tsv" % (year, qtr)
         qtr_dwnld = ind_file.split('.')[0].replace("-",'')
         self.out_dir = self.raw_dir.joinpath('filings',qtr_dwnld + '.zip')
-        self.risk_files = set(os.listdir(self.raw_dir.joinpath('riskfactors')))
+        self.risk_files = set(os.listdir(self.risk_dir))
         out_files = []
 
         if self.out_dir.exists():
@@ -253,7 +253,7 @@ class SECFilingDownload(object):
         if len(out_txt) == 0:
             return
 
-        rf_f = self.raw_dir.joinpath('riskfactors', str(self.row['cik']) + '.csv.gz')
+        rf_f = self.risk_dir.joinpath(str(self.row['cik']) + '.csv.gz')
         df_raw = pd.DataFrame(columns = ['risktext'], index = [self.row['dt_submitted']])
 
         if '%s.csv.gz' % self.row['cik'] in self.risk_files:
